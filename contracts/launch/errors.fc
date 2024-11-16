@@ -1,0 +1,2 @@
+const int error::launch_fee_not_matched = 100;
+const int error::unauthorized_change_fee_address = 101;
