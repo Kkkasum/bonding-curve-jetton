@@ -1,0 +1,99 @@
+#include "../../imports/stdlib.fc";
+#include "../utils/jetton_utils.fc";
+#include "../op_codes.fc";
+
+const STON_PROVIDE_LP = 0x37c096df;
+const PTON_TRANSFER_TON = 0x01f3835d;
+
+const gas::lp_jetton::gas = 300000000; ;; 0.3 TON
+const gas::lp_jetton::forward_gas = 240000000; ;; 0.24 TON
+const gas::lp_ton::gas = 260000000; ;; 0.26 TON
+const gas::total_lp_provide_gas = gas::lp_jetton::gas + gas::lp_ton::gas; ;; 0.3 + 0.26 = 0.56 TON
+
+;; internal_transfer  query_id:uint64 amount:(VarUInteger 16) from:MsgAddress
+;;                     response_address:MsgAddress
+;;                     forward_ton_amount:(VarUInteger 16)
+;;                     forward_payload:(Either Cell ^Cell)
+;;                     = InternalMsgBody;
+
+() provide_jetton_lp(int amount, slice router_address, slice router_pton_wallet, cell jetton_wallet_code) impure inline {
+    cell state_init = calculate_jetton_wallet_state_init(router_address, my_address(), jetton_wallet_code);
+    slice to_wallet_address = calc_jetton_wallet_address(state_init);
+
+    var msg_body = begin_cell()
+        .store_uint(op::internal_transfer, 32)
+        .store_uint(0, 64)
+        .store_coins(amount)
+        .store_slice(my_address()) ;; from
+        .store_slice(my_address()) ;; resonse dest
+        .store_coins(gas::lp_jetton::forward_gas)
+        .store_dict(
+            begin_cell()
+                .store_uint(STON_PROVIDE_LP, 32) ;; PROVIDE_LP
+                .store_slice(router_pton_wallet) ;; other wallet
+                .store_slice(my_address()) ;; refund address
+                .store_slice(my_address()) ;; excess address
+                .store_uint(0xffffffffffffffff, 64) ;; tx deadline
+                .store_ref(
+                    begin_cell()
+                        .store_coins(1) ;; min lp out
+                        .store_slice(my_address()) ;; to address
+                        .store_uint(1, 1) ;; both positive
+                        .store_coins(0) ;; fwd amount
+                        .store_maybe_ref(null()) ;; fwd payload
+                    .end_cell()
+                )
+            .end_cell()
+        )
+    .end_cell();
+
+    var msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(to_wallet_address)
+        .store_coins(gas::lp_jetton::gas)
+        .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+        .store_ref(state_init)
+        .store_ref(msg_body)
+    .end_cell();
+    send_raw_message(msg, 1);
+}
+
+;; transfer query_id:uint64 amount:(VarUInteger 16) destination:MsgAddress
+;;           response_destination:MsgAddress custom_payload:(Maybe ^Cell)
+;;           forward_ton_amount:(VarUInteger 16) forward_payload:(Either Cell ^Cell)
+;;           = InternalMsgBody;
+
+() provide_ton_lp(int amount, slice router_address, slice router_pton_wallet, cell jetton_wallet_code) impure inline {
+    slice router_wallet_address = calculate_jetton_wallet_address(router_address, my_address(), jetton_wallet_code);
+
+
+    var msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(router_pton_wallet)
+        .store_coins(amount + gas::lp_ton::gas)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(PTON_TRANSFER_TON, 32)
+        .store_uint(0, 64)
+        .store_coins(amount)
+        .store_slice(my_address()) ;; response dest
+        .store_dict(
+            begin_cell()
+                .store_uint(STON_PROVIDE_LP, 32) ;; PROVIDE_LP
+                .store_slice(router_wallet_address) ;; other wallet
+                .store_slice(my_address()) ;; refund address
+                .store_slice(my_address()) ;; excess address
+                .store_uint(0xffffffffffffffff, 64) ;; tx deadline
+                .store_ref(
+                    begin_cell()
+                        .store_coins(1) ;; min lp out
+                        .store_slice(my_address()) ;; to address
+                        .store_uint(1, 1) ;; both positive
+                        .store_coins(0) ;; fwd amount
+                        .store_maybe_ref(null()) ;; fwd payload
+                    .end_cell()
+                )
+            .end_cell()
+        )
+    .end_cell();
+    send_raw_message(msg, 1);
+}

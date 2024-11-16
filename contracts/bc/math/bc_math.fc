@@ -1,0 +1,47 @@
+#include "../../imports/math/math.fc";
+#include "bc_math_core.fc";
+
+;; Current price
+int calc_coin_price(int total_supply, int bc_supply, int max_ton) inline {
+    if (total_supply == 0) {
+        return 0;
+    }
+    return math::calc_coin_price(bc_supply, total_supply, max_ton);
+}
+
+;; Sell operation
+(int, int) calc_tons_for_coins(int tokens, int bc_supply, int total_supply, int max_ton, int trade_fee_numerator, int trade_fee_denominator) inline {
+    int tons_to_get = math::calc_tons_for_coins(tokens, bc_supply, total_supply, max_ton);
+    int fees = muldiv(tons_to_get, trade_fee_numerator, trade_fee_denominator);
+    tons_to_get -= fees;
+
+    return (fees, tons_to_get);
+}
+
+(int, int) calc_tons_for_all_coins(int bc_supply, int total_supply, int max_ton, int trade_fee_numerator, int trade_fee_denominator) inline {
+    int tons_need = math::calc_tons_for_coins(bc_supply, bc_supply, total_supply, max_ton);
+    int full_tons_need = muldivc(tons_need, trade_fee_denominator, trade_fee_denominator - trade_fee_numerator) + 1;
+    int fees = muldiv(full_tons_need, trade_fee_numerator, trade_fee_denominator);
+
+    return (fees, full_tons_need);
+}
+
+;; Buy operation
+(int, int, int) calc_coins_for_tons(int tons, int bc_supply, int total_supply, int max_ton, int trade_fee_numerator, int trade_fee_denominator) inline {
+    int incoming_tons = tons;
+    int available_to_buy = bc_supply - total_supply;
+    int fees = muldiv(tons, trade_fee_numerator, trade_fee_denominator);
+    tons -= fees;
+    int coins_to_get = math::calc_coins_for_tons(tons, bc_supply, total_supply, max_ton);
+
+    ;; Calculations for rest of available coins
+    if (coins_to_get > available_to_buy) {
+        int tons_no_fees = math::calc_tons_for_coins(available_to_buy, bc_supply, total_supply + available_to_buy, max_ton);
+        int tons_need = muldivc(tons_no_fees, trade_fee_denominator, trade_fee_denominator - trade_fee_numerator);
+        int fees = muldiv(tons_need, trade_fee_numerator, trade_fee_denominator);
+
+        return (fees, available_to_buy, tons_need);
+    }
+
+    return (fees, coins_to_get, incoming_tons);
+}

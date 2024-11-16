@@ -1,0 +1,264 @@
+#include "../imports/stdlib.fc";
+#include "utils/jetton_utils.fc";
+#include "op_codes.fc";
+#include "errors.fc";
+#include "math/bc_math.fc";
+#include "dex/stonfi.fc";
+
+global int   storage::total_supply;
+global slice storage::admin_address;
+global cell  storage::content;
+global cell  storage::jetton_wallet_code;
+global int   storage::ton_collected;
+global int   storage::max_ton;
+global int   storage::bc_supply;
+global int   storage::liq_supply;
+global slice storage::author_address;
+global slice storage::fee_address;
+global int   storage::trade_fee_numerator;
+global int   storage::trade_fee_denominator;
+global int   storage::trading_enabled;
+global slice storage::router_address;
+global slice storage::router_pton_wallet_address;
+
+() load_data() impure inline {
+    slice ds = get_data().begin_parse();
+
+    storage::total_supply = ds~load_coins();
+    storage::admin_address = ds~load_msg_addr();
+    storage::content = ds~load_ref();
+    storage::jetton_wallet_code = ds~load_ref();
+    storage::ton_collected = ds~load_coins();
+    storage::max_ton = ds~load_coins();
+
+    slice bc_ds = ds~load_ref().begin_parse();
+    storage::bc_supply = bc_ds~load_coins();
+    storage::liq_supply = bc_ds~load_coins();
+    storage::author_address = bc_ds~load_msg_addr();
+    storage::fee_address = bc_ds~load_msg_addr();
+    storage::trade_fee_numerator = bc_ds~load_uint(16);
+    storage::trade_fee_denominator = bc_ds~load_uint(16);
+    storage::trading_enabled = bc_ds~load_uint(1);
+
+    slice router_ds = bc_ds~load_ref().begin_parse();
+    storage::router_address = router_ds~load_msg_addr();
+    storage::router_pton_wallet_address = router_ds~load_msg_addr();
+}
+
+() save_data() impure inline {
+    set_data(
+        begin_cell()
+            .store_coins(storage::total_supply)
+            .store_slice(storage::admin_address)
+            .store_ref(storage::content)
+            .store_ref(storage::jetton_wallet_code)
+            .store_coins(storage::ton_collected)
+            .store_coins(storage::max_ton)
+            .store_ref(
+                begin_cell()
+                    .store_coins(storage::bc_supply)
+                    .store_coins(storage::liq_supply)
+                    .store_slice(storage::author_address)
+                    .store_slice(storage::fee_address)
+                    .store_uint(storage::trade_fee_numerator, 16)
+                    .store_uint(storage::trade_fee_denominator, 16)
+                    .store_uint(storage::trading_enabled, 1)
+                    .store_ref(
+                        begin_cell()
+                            .store_slice(storage::router_address)
+                            .store_slice(storage::router_pton_wallet_address)
+                        .end_cell()
+                    )
+                .end_cell()
+            )
+        .end_cell()
+    );
+}
+
+const int gas::purchase = 50000000;              ;; 0.05 TON
+const int gas::sell = 50000000;                  ;; 0.05 TON
+const int gas::auxiliary_costs = 100000000;      ;; 0.1 TON
+
+const int additional_to_return_value = 50000000; ;; 0.05 TON
+
+int storage_fees() asm "STORAGEFEES";
+
+() send_fees(int amount) impure inline {
+    cell msg_one = begin_cell()
+        .store_uint(0x10, 6)
+        .store_slice(storage::fee_address)
+        .store_coins(amount / 2)
+        .store_uint(op::fee_payout, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
+        .store_query_id(0)
+    .end_cell();
+    send_raw_message(msg_one, SEND_MODE_PAY_FEES_SEPARATELY);
+
+    cell msg_two = begin_cell()
+        .store_uint(0x10, 6)
+        .store_slice(storage::author_address)
+        .store_coins(amount / 2)
+        .store_uint(op::fee_payout, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
+        .store_query_id(0)
+    .end_cell();
+    send_raw_message(msg_two, SEND_MODE_PAY_FEES_SEPARATELY);
+}
+
+() mint_tokens(slice to_address, cell jetton_wallet_code, int amount, cell master_msg) impure {
+    cell state_init = calculate_jetton_wallet_state_init(to_address, my_address(), jetton_wallet_code);
+    slice to_wallet_address = calc_jetton_wallet_address(state_init);
+    var msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(to_wallet_address)
+        .store_coins(amount)
+        .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+        .store_ref(state_init)
+        .store_ref(master_msg)
+    .end_cell();
+    send_raw_message(msg, SEND_MODE_PAY_FEES_SEPARATELY);
+}
+
+() send_mint_token(slice to_address, int amount, slice response_address, int value, int mode) impure {
+    var master_msg = begin_cell()
+        .store_uint(op::internal_transfer, 32)
+        .store_uint(0, 64)
+        .store_coins(amount)
+        .store_uint(0, 2)
+        .store_slice(response_address)
+        .store_coins(0)
+        .store_uint(0, 1)
+    .end_cell();
+
+    cell state_init = calculate_jetton_wallet_state_init(to_address, my_address(), storage::jetton_wallet_code);
+    slice to_wallet_address = calc_jetton_wallet_address(state_init);
+    var msg = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(to_wallet_address)
+        .store_coins(value)
+        .store_uint(4 + 2 + 1, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 1)
+        .store_ref(state_init)
+        .store_ref(master_msg)
+    .end_cell();
+    send_raw_message(msg, mode);
+}
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) {
+        return ();
+    }
+
+    slice cs = in_msg_full.begin_parse();
+
+    int flags = cs~load_uint(4);
+    if (flags & 1) {
+        return ();
+    }
+
+    slice sender_address = cs~load_msg_addr();
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+
+    load_data();
+
+    if (op == op::purchase) {
+        throw_if(error::trading_disabled, storage::trading_enabled == 0);
+        throw_if(error::out_of_gas, msg_value < gas::purchase);
+
+        slice buyer_address = sender_address;
+        msg_value -= gas::purchase;
+
+        if (~ slice_empty?(in_msg_body)) {
+            buyer_address = in_msg_body~load_msg_addr();
+        }
+
+        ;; int min_receive_amount = in_msg_body~load_coins();
+        (int ton_fees, int coins_to_buy, int tons_consumed) = calc_coins_for_tons(msg_value, storage::bc_supply, storage::total_supply, storage::max_ton, storage::trade_fee_numerator, storage::trade_fee_denominator);
+
+        throw_if(error::zero_coins, coins_to_buy <= 0);
+        ;; throw_if(error::slippage, (coins_to_buy < min_receive_amount) | coins_to_buy <= 0);
+
+        int to_return = msg_value - tons_consumed;
+        storage::total_supply += coins_to_buy;
+        storage::ton_collected += tons_consumed - ton_fees;
+
+        send_fees(ton_fees);
+
+        int should_close_trading = storage::total_supply >= storage::bc_supply;
+        if (should_close_trading) {
+            to_return += additional_to_return_value;
+        } else {
+            raw_reserve(tons_consumed - ton_fees + storage_fees(), 4 + SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+        }
+
+        send_mint_token(
+            buyer_address,
+            coins_to_buy,
+            buyer_address,
+            to_return,
+            should_close_trading ? (SEND_MODE_REGULAR | SEND_MODE_BOUNCE_ON_ACTION_FAIL) : (SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL)
+        );
+
+        if (should_close_trading) {
+            storage::trading_enabled = 0;
+            
+            int ton_liq = storage::ton_collected - gas::total_lp_provide_gas - gas::auxiliary_costs - additional_to_return_value;
+            provide_ton_lp(ton_liq, storage::router_address, storage::router_pton_wallet_address, storage::jetton_wallet_code);
+
+            storage::total_supply += storage::liq_supply;
+            provide_jetton_lp(storage::liq_supply, storage::router_address, storage::router_pton_wallet_address, storage::jetton_wallet_code);
+        }
+
+        save_data();
+        return ();
+    }
+
+    throw(error::unknown_op);
+}
+
+(int, int, slice, cell, cell) get_jetton_data() method_id {
+    load_data();
+    return (storage::total_supply, -1, storage::admin_address, storage::content, storage::jetton_wallet_code);
+}
+
+slice get_wallet_address(slice owner_address) method_id {
+    load_data();
+    return calculate_jetton_wallet_address(owner_address, my_address(), storage::jetton_wallet_code);
+}
+
+int get_coin_price() method_id {
+    load_data();
+    return calc_coin_price(storage::total_supply, storage::bc_supply, storage::max_ton);
+}
+
+(int, int) get_coins_for_tons(int tons) method_id {
+    load_data();
+    (int fees, int coins, _) = calc_coins_for_tons(tons, storage::bc_supply, storage::total_supply, storage::max_ton, storage::trade_fee_numerator, storage::trade_fee_denominator);
+    return coins <= 0 ? (0, 0) : (fees, coins);
+}
+
+(int, int) get_tons_for_coins(int coins) method_id {
+    load_data();
+    (int fees, int tons) = calc_tons_for_coins(coins, storage::bc_supply, storage::total_supply, storage::max_ton, storage::trade_fee_numerator, storage::trade_fee_denominator);
+    return tons <= 0 ? (0, 0) : (fees, tons);
+}
+
+var get_bc_data() method_id {
+    load_data();
+    (int full_price_ton_fees, int full_price_ton_need) = calc_tons_for_all_coins(storage::bc_supply, storage::total_supply, storage::max_ton, storage::trade_fee_numerator, storage::trade_fee_denominator);
+    return (
+        storage::total_supply,
+        storage::admin_address,
+        storage::content,
+        storage::jetton_wallet_code,
+        storage::ton_collected,
+        storage::max_ton,
+        storage::bc_supply,
+        storage::liq_supply,
+        storage::author_address,
+        storage::fee_address,
+        storage::trade_fee_numerator,
+        storage::trade_fee_denominator,
+        storage::trading_enabled,
+        full_price_ton_fees,
+        full_price_ton_need
+    );
+}

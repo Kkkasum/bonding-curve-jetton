@@ -1,0 +1,59 @@
+#include "../../imports/math/math.fc";
+#include "../../imports/math/fp/fp.fc";
+
+const coeff::vTon = 333333333333333333;
+const coeff::vToken = 333333333333333333;
+const coeff::K = 444444444444444444;
+
+const ONE_9 = 1000000000; ;; 1e9
+
+int to_fp(int value) inline {
+    return value * ONE_9;
+}
+
+;; Converts FP TON to nanoTON
+int from_fp(int value) inline {
+    return value / ONE_9;
+}
+
+int real_ton(int max_ton, int bc_supply, int r_token) {
+    int a = math::fp::mul(math::fp::mul(coeff::K, max_ton), to_fp(bc_supply));
+    int b = (math::fp::mul(coeff::vToken, to_fp(bc_supply)) + r_token);
+
+    return math::fp::div(a, b) - math::fp::mul(coeff::vTon, max_ton);
+}
+
+int math::calc_coin_price(int bc_supply, int current_supply, int max_ton) inline {
+    int r_token = to_fp(bc_supply) - to_fp(current_supply);
+    int r_ton = real_ton(max_ton, bc_supply, r_token);
+
+    int a = math::fp::mul(coeff::vTon, max_ton) + r_ton;
+    int b = math::fp::mul(coeff::vToken, to_fp(bc_supply)) + r_token;
+
+    return from_fp(math::fp::div(a, b));
+}
+
+int math::calc_tons_for_coins(int tokens, int bc_supply, int current_supply, int max_ton) inline {
+    tokens = to_fp(tokens);
+
+    int r_token = to_fp(bc_supply) - to_fp(current_supply);
+    int r_ton = real_ton(max_ton, bc_supply, r_token);
+
+    int a = math::fp::mul(tokens, math::fp::mul(coeff::vTon, max_ton) + r_ton);
+    int b = math::fp::mul(coeff::vToken, to_fp(bc_supply)) + tokens + r_token;
+
+    return from_fp(math::fp::div(a, b));
+}
+
+int math::calc_coins_for_tons(int tons, int bc_supply, int current_supply, int max_ton) inline {
+    tons = to_fp(tons);
+    current_supply = to_fp(current_supply);
+
+    int r_token = to_fp(bc_supply) - current_supply;
+    int r_ton = real_ton(max_ton, bc_supply, r_token);
+
+    int a = math::fp::mul(tons, math::fp::mul(coeff::vToken, to_fp(bc_supply)) + r_token);
+    int b = math::fp::mul(coeff::vTon, max_ton) + tons + r_ton;
+
+    return from_fp(math::fp::div(a, b));
+}
