@@ -211,6 +211,159 @@ int storage_fees() asm "STORAGEFEES";
         return ();
     }
 
+    if (op == op::sell) {
+        throw_if(error::trading_disabled, storage::trading_enabled == 0);
+
+        int jetton_amount = in_msg_body~load_coins();
+        slice from_address = in_msg_body~load_msg_addr();
+        ;; int min_receive_amount = in_msg_body~load_coins();
+
+        throw_unless(error::invalid_jetton_wallet, equal_slice_bits(calculate_jetton_wallet_address(from_address, my_address(),storage::jetton_wallet_code), sender_address));
+        throw_if(error::out_of_gas, msg_value < gas::sell);
+        throw_if(error::out_of_bc_supply, jetton_amount > storage::bc_supply);
+
+        (int ton_fees, int tons_to_return) = calc_tons_for_coins(jetton_amount, storage::bc_supply, storage::total_supply, storage::max_ton, storage::trade_fee_numerator, storage::trade_fee_denominator);
+        ;; throw_if(error::slippage, tons_to_return < min_receive_amount);
+
+        storage::total_supply -= jetton_amount;
+        storage::ton_collected -= tons_to_return - ton_fees;
+
+        raw_reserve(tons_to_return + ton_fees - storage_fees(), 4 + 8 + SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+        send_fees(ton_fees);
+
+        var msg = begin_cell()
+            .store_uint(0x10, 6)
+            .store_slice(from_address)
+            .store_coins(0)
+            .store_uint(op::excesses, 1 + 4 + 4 + 64 + 32 + 1 + 1 + 32)
+            .store_query_id(query_id)
+        .end_cell();
+
+        send_raw_message(msg, SEND_MODE_CARRY_ALL_BALANCE | SEND_MODE_BOUNCE_ON_ACTION_FAIL);
+
+        save_data();
+        return ();
+    }
+
+    if (op == op::mint) {
+        throw_unless(error::unauthorized_mint_request, equal_slice_bits(sender_address, storage::admin_address));
+        slice to_address = in_msg_body~load_msg_addr();
+        int jetton_amount = in_msg_body~load_coins();
+        int forward_ton_amount = in_msg_body~load_coins();
+        int total_ton_amount = in_msg_body~load_coins();
+        throw_unless(error::discovery_fee_not_matched, total_ton_amount > forward_ton_amount);
+        cell mint_request = begin_cell()
+            .store_op(op::internal_transfer)
+            .store_query_id(query_id)
+            .store_coins(jetton_amount)
+            .store_uint(0, 2)
+            .store_slice(my_address())
+            .store_coins(forward_ton_amount)
+            .store_uint(0, 1)
+        .end_cell();
+        mint_tokens(to_address, storage::jetton_wallet_code, total_ton_amount, mint_request);
+        storage::total_supply += jetton_amount;
+        save_data();
+        return ();
+    }
+
+    if (op == op::burn_notification) {
+        int jetton_amount = in_msg_body~load_coins();
+        slice from_address = in_msg_body~load_msg_addr();
+        throw_unless(error::unauthorized_burn_request,
+            equal_slice_bits(calculate_jetton_wallet_address(from_address, my_address(), storage::jetton_wallet_code), sender_address)
+        );
+        slice response_address = in_msg_body~load_msg_addr();
+        if (response_address.preload_uint(2) != 0) {
+            var msg = begin_cell()
+                .store_uint(0x10, 6)
+                .store_slice(response_address)
+                .store_coins(0)
+                .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                .store_op(op::excesses)
+                .store_query_id(query_id)
+            .end_cell();
+            send_raw_message(msg, SEND_MODE_IGNORE_ERRORS | SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+        }
+        storage::total_supply -= jetton_amount;
+        save_data();
+        return ();
+    }
+
+    if (op == op::provide_wallet_address) {
+        slice owner_address = in_msg_body~load_msg_addr();
+        int include_address? = in_msg_body~load_uint(1);
+
+        cell included_address = include_address?
+                ? begin_cell().store_slice(owner_address).end_cell()
+                : null();
+        var msg = begin_cell()
+                .store_msg_flags_and_address_none(BOUNCEABLE)
+                .store_slice(sender_address)
+                .store_coins(0)
+                .store_prefix_only_body()
+                .store_op(op::take_wallet_address)
+                .store_query_id(query_id);
+
+        if (is_resolvable?(owner_address)) {
+            msg = msg.store_slice(calculate_jetton_wallet_address(owner_address, my_address(), storage::jetton_wallet_code));
+        } else {
+            msg = msg.store_address_none(); ;; addr_none
+        }
+        send_raw_message(msg.store_maybe_ref(included_address).end_cell(), SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+        return ();
+    }
+
+    if (op == op::change_admin) { ;; change admin
+        throw_unless(error::unauthorized_change_admin_request, equal_slice_bits(sender_address, storage::admin_address));
+        storage::admin_address = in_msg_body~load_msg_addr();
+        save_data();
+        return ();
+    }
+
+    if (op == op::change_content) {
+        throw_unless(error::unauthorized_change_content_request, equal_slice_bits(sender_address, storage::admin_address));
+        storage::content = in_msg_body~load_ref();
+        save_data();
+        return ();
+    }
+
+    if (op == op::change_author) {
+        throw_unless(error::unauthorized_change_author_request, equal_slice_bits(sender_address, storage::author_address));
+        storage::author_address = in_msg_body~load_msg_addr();
+        save_data();
+        return ();
+    }
+
+    if (op == op::change_fees) {
+        throw_unless(error::unauthorized_change_fees_request, equal_slice_bits(sender_address, storage::admin_address));
+        storage::fee_address = in_msg_body~load_msg_addr();
+        storage::trade_fee_numerator = in_msg_body~load_uint(16);
+        storage::trade_fee_denominator = in_msg_body~load_uint(16);
+        save_data();
+        return ();
+    }
+
+    if (op == op::unlock_wallet_callback) {
+        slice from_address = in_msg_body~load_msg_addr();
+
+        throw_unless(error::invalid_jetton_wallet, equal_slice_bits(calculate_jetton_wallet_address(from_address, my_address(),storage::jetton_wallet_code), sender_address));
+        throw_if(error::trading_enabled, storage::trading_enabled == 1);
+
+        send_raw_message(
+            begin_cell()
+                .store_uint(0x10, 6)
+                .store_slice(sender_address)
+                .store_coins(0)
+                .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                .store_uint(op::unlock_wallet_excess, 32)
+                .store_uint(0, 64)
+            .end_cell(),
+            SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE
+        );
+        return ();
+    }
+
     throw(error::unknown_op);
 }
 

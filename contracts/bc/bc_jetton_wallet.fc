@@ -281,6 +281,11 @@ const int gas_sell = 50000000;
         return ();
     }
 
+    if (op == op::sell) { ;; sell
+        sell_tokens(in_msg_body, sender_address, msg_value, fwd_fee);
+        return ();
+    }
+
     (int locked, int balance, slice owner_address, slice jetton_master_address, cell jetton_wallet_code) = load_data();
     ;; Withdraw tons or jettons which accidentally were sent to this jettonWallet
     if (op == op::withdraw_tons) {
@@ -323,6 +328,40 @@ const int gas_sell = 50000000;
             )
         .end_cell();
         return send_raw_message(msg, SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE);
+    }
+
+    if (op == op::unlock_wallet) {
+        throw_unless(error::unauthorized_unlock_request, equal_slice_bits(owner_address, sender_address));
+        if (locked == 0) {
+            send_raw_message(
+                begin_cell()
+                    .store_op(0x10)
+                    .store_slice(sender_address)
+                    .store_coins(0)
+                .end_cell(),
+                SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE
+            );
+            return ();
+        }
+
+        send_raw_message(
+            begin_cell()
+                .store_op(0x10)
+                .store_slice(jetton_master_address)
+                .store_coins(0)
+                .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+                .store_op(op::unlock_wallet_callback)
+                .store_query_id(0)
+                .store_slice(sender_address)
+            .end_cell(),
+            SEND_MODE_CARRY_ALL_REMAINING_MESSAGE_VALUE
+        );
+        return ();
+    }
+
+    if (op == op::unlock_wallet_excess) {
+        throw_unless(error::unauthorized_unlock_request, equal_slice_bits(jetton_master_address, sender_address));
+        save_data(0, balance, owner_address, jetton_master_address, jetton_wallet_code);
     }
 
     throw(error::unknown_action);
