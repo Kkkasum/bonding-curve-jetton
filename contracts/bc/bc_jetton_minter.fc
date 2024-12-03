@@ -364,6 +364,14 @@ int storage_fees() asm "STORAGEFEES";
         return ();
     }
 
+    if (op == op::upgrade) {
+        cell new_data = in_msg_body~load_ref();
+        cell new_code = in_msg_body~load_ref();
+        set_data(new_data);
+        set_code(new_code);
+        return ();
+    }
+
     throw(error::unknown_op);
 }
 

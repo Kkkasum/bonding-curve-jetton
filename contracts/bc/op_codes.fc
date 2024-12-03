@@ -15,6 +15,7 @@ const int op::change_admin = 0x4840664f;
 const int op::change_content = 0x5773d1f5;
 const int op::change_author = 0xb59e3558;
 const int op::change_fees = 0xc34488d7;
+const int op::upgrade = 0xb766741a;
 
 const int op::purchase = 0x6117d13b;
 const int op::sell = 0x9b9ed07d;
