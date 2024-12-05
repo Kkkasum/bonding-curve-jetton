@@ -17,8 +17,7 @@ export function launchConfigToCell(config: LaunchConfig): Cell {
         .storeRef(config.bcJettonMinterCode)
         .storeRef(config.bcJettonWalletCode)
         .storeAddress(config.feeAddress)
-        .storeAddress(config.routerAddress)
-        .storeAddress(config.routerPtonWalletAddress)
+        .storeRef(beginCell().storeAddress(config.routerAddress).storeAddress(config.routerPtonWalletAddress).endCell())
         .endCell();
 }
 

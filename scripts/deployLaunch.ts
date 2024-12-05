@@ -3,8 +3,8 @@ import { Address, toNano } from '@ton/core';
 import { Launch } from '../wrappers/Launch';
 
 export async function run(provider: NetworkProvider) {
-    const adminAddress = Address.parse('EQB_MpZaOhVMdN4Q6NsRCGYpHsOYqxiEuqIGsyUhweQnaehv');
-    const feeAddress = Address.parse('');
+    const adminAddress = Address.parse('EQDx--jUU9PUtHltPYZX7wdzIi0SPY3KZ8nvOs0iZvQJd6Ql');
+    const feeAddress = Address.parse('EQDx--jUU9PUtHltPYZX7wdzIi0SPY3KZ8nvOs0iZvQJd6Ql');
 
     //EQD76IdOpu1-NK-x3mCcxZDjHYYdLBSn768a4cQ2FLtFpJSf
 
