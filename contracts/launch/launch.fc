@@ -19,7 +19,7 @@ global slice storage::router_pton_wallet_address;
     storage::bc_jetton_minter_code = ds~load_ref();
     storage::bc_jetton_wallet_code = ds~load_ref();
     storage::fee_address = ds~load_msg_addr();
-    cell router_ds = ds~load_ref();
+    slice router_ds = ds~load_ref().begin_parse();
     storage::router_address = router_ds~load_msg_addr();
     storage::router_pton_wallet_address = router_ds~load_msg_addr();
 
