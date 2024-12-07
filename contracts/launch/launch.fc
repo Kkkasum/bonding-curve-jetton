@@ -94,14 +94,35 @@ global slice storage::router_pton_wallet_address;
         return ();
     }
 
-    if (op == op::change_fee_address) {
-        throw_unless(error::unauthorized_change_fee_address, equal_slice_bits(storage::admin_address, sender_address));
+    throw_unless(error::unauthorized_change_fee_address, equal_slice_bits(storage::admin_address, sender_address));
 
+    if (op == op::change_fee_address) {
         slice fee_address = in_msg_body~load_msg_addr();
 
         storage::fee_address = fee_address;
 
         save_data();
+        return ();
+    }
+
+    if (op == op::withdraw_ton) {
+        int amount = in_msg_body~load_coins();
+        send_raw_message(
+            begin_cell()
+                .store_uint(0x18, 6)
+                .store_slice(sender_address)
+                .store_coins(amount)
+            .end_cell(),
+            0
+        );
+        return ();
+    }
+
+    if (op == op::upgrade) {
+        cell new_data = in_msg_body~load_ref();
+        cell new_code = in_msg_body~load_ref();
+        set_data(new_data);
+        set_code(new_code);
         return ();
     }
 
@@ -118,4 +139,9 @@ global slice storage::router_pton_wallet_address;
         storage::router_address,
         storage::router_pton_wallet_address
     );
+}
+
+slice get_minter_address(cell content, slice author_address) method_id {
+    load_data();
+    return calculate_bc_jetton_minter_address(storage::admin_address, content, storage::bc_jetton_wallet_code, author_address, storage::fee_address, storage::router_address, storage::router_pton_wallet_address, storage::bc_jetton_minter_code);
 }

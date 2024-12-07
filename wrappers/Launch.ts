@@ -87,4 +87,12 @@ export class Launch implements Contract {
             routerPtonWalletAddress,
         };
     }
+
+    async getMinterAddress(provider: ContractProvider, content: Cell, authorAddress: Address): Promise<Address> {
+        const res = await provider.get('get_minter_address', [
+            { type: 'cell', cell: content },
+            { type: 'slice', cell: beginCell().storeAddress(authorAddress).endCell() },
+        ]);
+        return res.stack.readAddress();
+    }
 }

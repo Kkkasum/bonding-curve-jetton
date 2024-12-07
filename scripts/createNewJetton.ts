@@ -1,5 +1,6 @@
 import { compile, NetworkProvider } from '@ton/blueprint';
 import { Address, toNano } from '@ton/core';
+import { jettonContentToCell } from '../wrappers/BcJettonMinter';
 import { Launch } from '../wrappers/Launch';
 
 export async function run(provider: NetworkProvider) {
@@ -23,7 +24,9 @@ export async function run(provider: NetworkProvider) {
         ),
     );
 
-    await launch.sendDeploy(provider.sender(), toNano('0.05'));
-
-    await provider.waitForDeploy(launch.address);
+    await launch.sendLaunch(provider.sender(), {
+        value: toNano('1.5'),
+        content: jettonContentToCell({ type: 1, uri: 'asd' }),
+        authorAddress: adminAddress,
+    });
 }

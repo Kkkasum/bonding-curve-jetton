@@ -1,3 +1,5 @@
 const int op::launch = 0x79b757f5;
 const int op::purchase = 0x6117d13b;
 const int op::change_fee_address = 0xf69b0c87;
+const int op::withdraw_ton = 0x37726bdb;
+const int op::upgrade = 0xb766741a;

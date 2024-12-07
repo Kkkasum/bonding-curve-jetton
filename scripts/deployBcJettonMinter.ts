@@ -11,11 +11,11 @@ export async function run(provider: NetworkProvider) {
     const bcJettonMinter = provider.open(
         BcJettonMinter.createFromConfig(
             {
-                totalSupply: 0,
+                totalSupply: toNano(0),
                 adminAddress: adminAddress,
                 content: Cell.EMPTY,
                 jettonWalletCode: jettonWalletCode,
-                tonCollected: 0,
+                tonCollected: toNano(0),
                 maxTon: toNano(1500),
                 bcSupply: toNano(800000000),
                 liqSupply: toNano(200000000),

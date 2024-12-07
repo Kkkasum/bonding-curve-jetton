@@ -33,12 +33,12 @@ describe('BcJettonMinter', () => {
         bcJettonMinter = blockchain.openContract(
             BcJettonMinter.createFromConfig(
                 {
-                    totalSupply: toNano(1000),
+                    totalSupply: toNano(0),
                     adminAddress: admin.address,
                     content: Cell.EMPTY,
                     jettonWalletCode: jettonWalletCode,
                     tonCollected: toNano(0),
-                    maxTon: toNano(1500000000000000000),
+                    maxTon: toNano(1500000000000000000n),
                     bcSupply: toNano(800000000),
                     liqSupply: toNano(200000000),
                     authorAddress: author.address,
